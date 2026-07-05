@@ -808,7 +808,7 @@ async function checkSession() {
 
 // ── AI analysis via server proxy ──────────────────────────────────────────────
 
-async function analyzeWithAI(type, file, text) {
+async function analyzeWithAI(type, file, text, image) {
   if (!currentUser) return null;
   try {
     const res = await fetch("/api/analyze", {
@@ -817,7 +817,7 @@ async function analyzeWithAI(type, file, text) {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${currentUser.token}`
       },
-      body: JSON.stringify({ type, filename: file.name, content: text || "" })
+      body: JSON.stringify({ type, filename: file.name, content: text || "", image: image || null })
     });
     const json = await res.json();
     return json.ok ? json.data : null;
@@ -828,10 +828,10 @@ async function analyzeWithAI(type, file, text) {
 
 // ── Ride / sleep / food upload helpers ───────────────────────────────────────
 
-async function applyRideEstimate(file, text) {
+async function applyRideEstimate(file, text, image) {
   els.rideResult.classList.add("analyzing");
   const fallback = estimateRide(file, text);
-  const ai = await analyzeWithAI("ride", file, text);
+  const ai = await analyzeWithAI("ride", file, text, image);
   els.rideResult.classList.remove("analyzing");
 
   const distance   = ai?.distance_km    ?? fallback.distance;
@@ -876,10 +876,10 @@ async function applyRideEstimate(file, text) {
   });
 }
 
-async function applyRunEstimate(file, text) {
+async function applyRunEstimate(file, text, image) {
   els.runResult.classList.add("analyzing");
   const fallback = estimateRun(file, text);
-  const ai = await analyzeWithAI("run", file, text);
+  const ai = await analyzeWithAI("run", file, text, image);
   els.runResult.classList.remove("analyzing");
 
   const distance   = ai?.distance_km    ?? fallback.distance;
@@ -920,10 +920,10 @@ async function applyRunEstimate(file, text) {
   });
 }
 
-async function applySwimEstimate(file, text) {
+async function applySwimEstimate(file, text, image) {
   els.swimResult.classList.add("analyzing");
   const fallback = estimateSwim(file, text);
-  const ai = await analyzeWithAI("swim", file, text);
+  const ai = await analyzeWithAI("swim", file, text, image);
   els.swimResult.classList.remove("analyzing");
 
   const distance   = ai?.distance_m     ?? fallback.distance;
@@ -1254,7 +1254,7 @@ document.querySelector("#rideUpload").addEventListener("change", async (event) =
     const reader = new FileReader();
     reader.addEventListener("load", async () => {
       showPhotoPreview(preview, reader.result, file.name);
-      await applyRideEstimate(file, "");
+      await applyRideEstimate(file, "", reader.result);
     });
     reader.addEventListener("error", async () => {
       showPhotoPreview(preview, null, file.name);
@@ -1279,7 +1279,7 @@ document.querySelector("#runUpload").addEventListener("change", async (event) =>
     const reader = new FileReader();
     reader.addEventListener("load", async () => {
       showPhotoPreview(preview, reader.result, file.name);
-      await applyRunEstimate(file, "");
+      await applyRunEstimate(file, "", reader.result);
     });
     reader.addEventListener("error", async () => {
       showPhotoPreview(preview, null, file.name);
@@ -1304,7 +1304,7 @@ document.querySelector("#swimUpload").addEventListener("change", async (event) =
     const reader = new FileReader();
     reader.addEventListener("load", async () => {
       showPhotoPreview(preview, reader.result, file.name);
-      await applySwimEstimate(file, "");
+      await applySwimEstimate(file, "", reader.result);
     });
     reader.addEventListener("error", async () => {
       showPhotoPreview(preview, null, file.name);

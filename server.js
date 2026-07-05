@@ -6,6 +6,7 @@ const crypto = require("crypto");
 
 const OLLAMA_HOST = "http://localhost:11434";
 const AI_MODEL = "qwen3:8b";
+const VISION_MODEL = "gemma3:latest";
 const WEBUI_HOST = "http://localhost:8081";
 
 function ollamaGenerate(prompt, timeoutMs = 180000, extraOpts = {}) {
@@ -47,6 +48,20 @@ function buildPrompt(type, filename, content) {
     return `/no_think\nYou are a sports nutritionist advising a cyclist. Analyze this single meal and return ONLY a single-line JSON object with no markdown, no explanation, no extra text. Estimate realistic totals for this meal alone, based on typical portion sizes.\nFilename: ${filename}\nContent:\n${snip}\n\nReturn exactly this structure:\n{"carbs_g":number,"protein_g":number,"fluids_ml":number,"calories":number,"meal_summary":"string 1 sentence describing the meal","coach_tip":"string 1 sentence cycling-specific fuel advice"}`;
   }
   return null;
+}
+
+// Vision prompts for screenshot uploads (ride/run/swim): the model is shown the
+// actual image, so unlike buildPrompt() it must never estimate or recompute the
+// on-screen numbers — only session_title/session_note/coach_tip are its own words.
+const VISION_SCHEMAS = {
+  ride: `{"distance_km":number,"duration_min":number,"calories":number,"tss":number,"avg_power_watts":number,"ftp_watts":number,"session_title":"string","session_note":"string","coach_tip":"string"}`,
+  run:  `{"distance_km":number,"duration_min":number,"calories":number,"pace_min_km":number,"avg_heart_rate":number,"training_load":number,"session_title":"string","session_note":"string","coach_tip":"string"}`,
+  swim: `{"distance_m":number,"duration_min":number,"calories":number,"pace_per_100m":number,"avg_heart_rate":number,"training_load":number,"session_title":"string","session_note":"string","coach_tip":"string"}`
+};
+const VISION_ACTIVITY = { ride: "cycling ride", run: "run", swim: "swim" };
+
+function buildVisionPrompt(type, filename) {
+  return `You are looking at a screenshot from a fitness tracking app showing a completed ${VISION_ACTIVITY[type]}. Read the EXACT numbers that are visibly printed on screen. Do not estimate, recalculate, round differently, or invent any value that is not clearly shown in the image — copy it exactly as displayed. If a field is not visible anywhere in the image, set it to null rather than guessing.\nOnly "session_title", "session_note", and "coach_tip" are your own analysis and coaching feedback; every other field must come directly from what is printed in the image.\nFilename: ${filename}\n\nReturn ONLY a single-line JSON object with no markdown and no explanation, in exactly this structure:\n${VISION_SCHEMAS[type]}`;
 }
 
 function extractJson(text) {
@@ -409,12 +424,21 @@ http.createServer(async (req, res) => {
     const db = loadDB();
     const user = userByToken(db, getToken(req));
     if (!user) return json(res, 401, { error: "Unauthorized" });
-    const { type, content, filename } = await parseBody(req);
+    const { type, content, filename, image } = await parseBody(req);
     if (!type || !["ride","run","swim","sleep","nutrition"].includes(type))
       return json(res, 400, { error: "Invalid type" });
-    const prompt = buildPrompt(type, filename || "file", content || "");
+
+    const useVision = ["ride","run","swim"].includes(type) && !!image;
     try {
-      const result = await ollamaGenerate(prompt);
+      let result;
+      if (useVision) {
+        const base64 = String(image).replace(/^data:image\/\w+;base64,/, "");
+        const prompt = buildVisionPrompt(type, filename || "file");
+        result = await ollamaGenerate(prompt, 180000, { model: VISION_MODEL, images: [base64] });
+      } else {
+        const prompt = buildPrompt(type, filename || "file", content || "");
+        result = await ollamaGenerate(prompt);
+      }
       const data = extractJson(result.response || "");
       if (!data) return json(res, 200, { ok: false, error: "Could not parse AI response", raw: result.response });
       return json(res, 200, { ok: true, data });
