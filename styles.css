@@ -1129,7 +1129,7 @@ input[type="checkbox"] {
 }
 
 .wp-seg {
-  flex: 1 0 auto;
+  flex: 1 1 auto;
   min-width: 5px;
   height: var(--h);
   border-radius: 5px 5px 2px 2px;
@@ -1142,6 +1142,7 @@ input[type="checkbox"] {
 }
 
 .wp-seg-value {
+  min-width: 0;
   font-size: 0.66rem;
   font-weight: 800;
   line-height: 1;

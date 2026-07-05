@@ -349,7 +349,7 @@ function renderWorkoutProfile(warmupText, warmupDetail, mainText, mainDetail, co
 
   if (warmupMin === 0 && cooldownMin === 0 && main.kind === "rest") {
     track.innerHTML = `
-      <div class="wp-col" style="flex:1 0 0" title="${escapeHtml(mainDetail || "")}">
+      <div class="wp-col" style="flex:1 1 0" title="${escapeHtml(mainDetail || "")}">
         <div class="wp-bars"><span class="wp-seg wp-rest" style="--h:14%"></span></div>
         <span class="wp-label">Rest / optional<br>${escapeHtml(mainText)}</span>
       </div>`;
@@ -358,7 +358,7 @@ function renderWorkoutProfile(warmupText, warmupDetail, mainText, mainDetail, co
 
     if (warmupMin > 0) {
       cols.push(`
-        <div class="wp-col" style="flex:${Math.max(warmupMin, 3)} 0 0" title="${escapeHtml(warmupDetail || "")}">
+        <div class="wp-col" style="flex:${Math.max(warmupMin, 3)} 1 0" title="${escapeHtml(warmupDetail || "")}">
           <div class="wp-bars"><span class="wp-seg wp-warmup" style="--h:36%">${wpValueSpan(intensity.warmup)}</span></div>
           <span class="wp-label">Warm up<br>${escapeHtml(warmupText)}</span>
         </div>`);
@@ -369,11 +369,11 @@ function renderWorkoutProfile(warmupText, warmupDetail, mainText, mainDetail, co
     if (main.kind === "intervals") {
       for (let i = 0; i < main.reps; i++) {
         mainFlex += main.eachMin;
-        barsHtml += `<span class="wp-seg wp-work" style="flex:${Math.max(main.eachMin, 2)} 0 0; --h:90%">${wpValueSpan(intensity.work)}</span>`;
+        barsHtml += `<span class="wp-seg wp-work" style="flex:${Math.max(main.eachMin, 2)} 1 0; --h:90%">${wpValueSpan(intensity.work)}</span>`;
         if (i < main.reps - 1) {
           const recMin = main.eachMin * WP_RECOVERY_RATIO;
           mainFlex += recMin;
-          barsHtml += `<span class="wp-seg wp-recovery" style="flex:${Math.max(recMin, 1)} 0 0; --h:28%">${wpValueSpan(intensity.recovery)}</span>`;
+          barsHtml += `<span class="wp-seg wp-recovery" style="flex:${Math.max(recMin, 1)} 1 0; --h:28%">${wpValueSpan(intensity.recovery)}</span>`;
         }
       }
     } else if (main.kind === "steady") {
@@ -389,14 +389,14 @@ function renderWorkoutProfile(warmupText, warmupDetail, mainText, mainDetail, co
       : `Main set<br>${escapeHtml(mainText)}`;
 
     cols.push(`
-      <div class="wp-col" style="flex:${Math.max(mainFlex, 4)} 0 0" title="${escapeHtml(mainDetail || "")}">
+      <div class="wp-col" style="flex:${Math.max(mainFlex, 4)} 1 0" title="${escapeHtml(mainDetail || "")}">
         <div class="wp-bars">${barsHtml}</div>
         <span class="wp-label">${mainLabel}</span>
       </div>`);
 
     if (cooldownMin > 0) {
       cols.push(`
-        <div class="wp-col" style="flex:${Math.max(cooldownMin, 3)} 0 0" title="${escapeHtml(cooldownDetail || "")}">
+        <div class="wp-col" style="flex:${Math.max(cooldownMin, 3)} 1 0" title="${escapeHtml(cooldownDetail || "")}">
           <div class="wp-bars"><span class="wp-seg wp-cooldown" style="--h:26%">${wpValueSpan(intensity.cooldown)}</span></div>
           <span class="wp-label">Cool down<br>${escapeHtml(cooldownText)}</span>
         </div>`);
