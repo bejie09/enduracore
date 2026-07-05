@@ -51,6 +51,8 @@ const els = {
   thresholdZone: document.querySelector("#thresholdZone"),
   vo2Zone: document.querySelector("#vo2Zone"),
   todayBar: document.querySelector("#todayBar"),
+  workoutProfileTrack: document.querySelector("#workoutProfileTrack"),
+  workoutProfileSummary: document.querySelector("#workoutProfileSummary"),
   bedtime: document.querySelector("#bedtime"),
   sleepNeed: document.querySelector("#sleepNeed"),
   carbActual: document.querySelector("#carbActual"),
@@ -311,6 +313,136 @@ function swimmingRecommendation(score) {
   };
 }
 
+const WP_METERS_PER_MIN = 50;
+const WP_RECOVERY_RATIO = 0.35;
+
+function wpParseMinutes(text) {
+  if (!text || text === "—") return 0;
+  let m = text.match(/^(\d+(?:\.\d+)?)\s*min$/i);
+  if (m) return parseFloat(m[1]);
+  m = text.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*min$/i);
+  if (m) return (parseFloat(m[1]) + parseFloat(m[2])) / 2;
+  m = text.match(/^(\d+(?:\.\d+)?)\s*m$/i);
+  if (m) return parseFloat(m[1]) / WP_METERS_PER_MIN;
+  return 0;
+}
+
+function wpParseMainSet(text) {
+  let m = text.match(/^(\d+)\s*[x×]\s*(\d+(?:\.\d+)?)\s*(min|m)$/i);
+  if (m) {
+    const reps = parseInt(m[1], 10);
+    const each = parseFloat(m[2]);
+    const unit = m[3].toLowerCase();
+    return { kind: "intervals", reps, each, unit, eachMin: unit === "m" ? each / WP_METERS_PER_MIN : each };
+  }
+  m = text.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*min$/i);
+  if (m) return { kind: "rest", eachMin: Math.max((parseFloat(m[1]) + parseFloat(m[2])) / 2, 4) };
+  m = text.match(/^(\d+(?:\.\d+)?)\s*min$/i);
+  if (m) return { kind: "steady", eachMin: parseFloat(m[1]) };
+  return { kind: "rest", eachMin: 8 };
+}
+
+function wpValueSpan(text) {
+  return text ? `<span class="wp-seg-value">${escapeHtml(text)}</span>` : "";
+}
+
+function renderWorkoutProfile(warmupText, mainText, cooldownText, intensity = {}) {
+  const track = els.workoutProfileTrack;
+  if (!track) return;
+
+  const warmupMin = wpParseMinutes(warmupText);
+  const cooldownMin = wpParseMinutes(cooldownText);
+  const main = wpParseMainSet(mainText);
+
+  if (warmupMin === 0 && cooldownMin === 0 && main.kind === "rest") {
+    track.innerHTML = `
+      <div class="wp-col" style="flex:1 0 0">
+        <span class="wp-label">Rest / optional<br>${escapeHtml(mainText)}</span>
+        <div class="wp-bars"><span class="wp-seg wp-rest" style="--h:14%"></span></div>
+      </div>`;
+  } else {
+    const cols = [];
+
+    if (warmupMin > 0) {
+      cols.push(`
+        <div class="wp-col" style="flex:${Math.max(warmupMin, 3)} 0 0">
+          <span class="wp-label">Warm up<br>${escapeHtml(warmupText)}</span>
+          <div class="wp-bars"><span class="wp-seg wp-warmup" style="--h:36%">${wpValueSpan(intensity.warmup)}</span></div>
+        </div>`);
+    }
+
+    let mainFlex = 0;
+    let barsHtml = "";
+    if (main.kind === "intervals") {
+      for (let i = 0; i < main.reps; i++) {
+        mainFlex += main.eachMin;
+        barsHtml += `<span class="wp-seg wp-work" style="flex:${Math.max(main.eachMin, 2)} 0 0; --h:90%">${wpValueSpan(intensity.work)}</span>`;
+        if (i < main.reps - 1) {
+          const recMin = main.eachMin * WP_RECOVERY_RATIO;
+          mainFlex += recMin;
+          barsHtml += `<span class="wp-seg wp-recovery" style="flex:${Math.max(recMin, 1)} 0 0; --h:28%">${wpValueSpan(intensity.recovery)}</span>`;
+        }
+      }
+    } else if (main.kind === "steady") {
+      mainFlex = main.eachMin;
+      barsHtml = `<span class="wp-seg wp-steady" style="--h:58%">${wpValueSpan(intensity.work)}</span>`;
+    } else {
+      mainFlex = main.eachMin;
+      barsHtml = `<span class="wp-seg wp-rest" style="--h:16%"></span>`;
+    }
+
+    const mainLabel = main.kind === "intervals"
+      ? `Main set<br>${main.reps} × ${main.each}${main.unit === "m" ? "m" : " min"}`
+      : `Main set<br>${escapeHtml(mainText)}`;
+
+    cols.push(`
+      <div class="wp-col" style="flex:${Math.max(mainFlex, 4)} 0 0">
+        <span class="wp-label">${mainLabel}</span>
+        <div class="wp-bars">${barsHtml}</div>
+      </div>`);
+
+    if (cooldownMin > 0) {
+      cols.push(`
+        <div class="wp-col" style="flex:${Math.max(cooldownMin, 3)} 0 0">
+          <span class="wp-label">Cool down<br>${escapeHtml(cooldownText)}</span>
+          <div class="wp-bars"><span class="wp-seg wp-cooldown" style="--h:26%">${wpValueSpan(intensity.cooldown)}</span></div>
+        </div>`);
+    }
+
+    track.innerHTML = cols.join("");
+  }
+
+  if (els.workoutProfileSummary) {
+    const parts = [];
+    if (warmupMin > 0) parts.push(`Warm up ${warmupText}`);
+    parts.push(`Main set ${mainText}`);
+    if (cooldownMin > 0) parts.push(`Cool down ${cooldownText}`);
+    els.workoutProfileSummary.textContent = parts.join("  →  ");
+  }
+}
+
+function cyclingIntensity(rec) {
+  const wattsMatch = rec.detail.match(/(\d+-\d+\s*W)/);
+  let work = "";
+  if (wattsMatch) work = wattsMatch[1];
+  else if (/zone 1/i.test(rec.detail)) work = formatZone(0.45, 0.6);
+  return {
+    warmup: formatZone(0.55, 0.7),
+    cooldown: formatZone(0.5, 0.65),
+    recovery: formatZone(0.5, 0.6),
+    work
+  };
+}
+
+function paceIntensity(rec) {
+  let work = "";
+  if (/intervals? near/i.test(rec.detail)) work = els.vo2Zone.textContent;
+  else if (/tempo run near|steady swim near/i.test(rec.detail)) work = els.thresholdZone.textContent;
+  else if (/easy recovery run near|easy technique swim near/i.test(rec.detail)) work = els.sweetSpotZone.textContent;
+  const easy = els.sweetSpotZone.textContent;
+  return { warmup: easy, cooldown: easy, recovery: easy, work };
+}
+
 function renderTrainingPlanPanel(score) {
   if (currentRidesTab === "swimming") {
     const recentPace = historyData.swims[0]?.pace || null;
@@ -333,6 +465,7 @@ function renderTrainingPlanPanel(score) {
     els.mainSetCopy.textContent = rec.detail;
     els.cooldownDuration.textContent = rec.cooldownMain;
     els.cooldownDetail.textContent = rec.cooldownDetail;
+    renderWorkoutProfile(rec.warmupMain, rec.main, rec.cooldownMain, paceIntensity(rec));
     return;
   }
 
@@ -357,6 +490,7 @@ function renderTrainingPlanPanel(score) {
     els.mainSetCopy.textContent = rec.detail;
     els.cooldownDuration.textContent = rec.cooldownMain;
     els.cooldownDetail.textContent = rec.cooldownDetail;
+    renderWorkoutProfile(rec.warmupMain, rec.main, rec.cooldownMain, paceIntensity(rec));
     return;
   }
 
@@ -377,6 +511,7 @@ function renderTrainingPlanPanel(score) {
   els.mainSetCopy.textContent = rec.detail;
   els.cooldownDuration.textContent = "10 min";
   els.cooldownDetail.textContent = "Easy spin and mobility";
+  renderWorkoutProfile("12 min", rec.main, "10 min", cyclingIntensity(rec));
 }
 
 function estimateRun(file, text = "") {
