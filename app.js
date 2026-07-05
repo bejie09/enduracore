@@ -152,6 +152,36 @@ function summarizeFile(file) {
   return `${escapeHtml(file.name)} - ${fileSizeMb(file).toFixed(1)} MB`;
 }
 
+// TSS is calculated from Moving Time + Avg Power against the rider's FTP
+// (the standard IF²×hours formula) whenever power data is available — from
+// manual entry, AI analysis, or a parsed file — so it's never just guessed.
+// Falls back to the duration/distance/calories heuristic when there's no
+// power number to work with.
+function calculateRideTSS({ minutes, avgPower, ftp }) {
+  if (!avgPower || !ftp) return null;
+  const hours = minutes / 60;
+  const intensity = avgPower / ftp;
+  return clamp(Math.round(hours * intensity * intensity * 100), 5, 250);
+}
+
+// Muscle soreness is estimated from this ride's TSS plus how "spiky" the
+// effort was: big gaps between avg/max power or avg/max heart rate imply
+// hard anaerobic efforts that cause more next-day soreness than a steady
+// ride at the same TSS.
+function calculateSorenessEstimate({ tss, avgPower, maxPower, avgHr, maxHr }) {
+  let soreness = (tss || 0) / 17;
+  if (avgPower && maxPower) {
+    const spikeRatio = maxPower / avgPower;
+    if (spikeRatio > 2.2) soreness += 1.5;
+    else if (spikeRatio > 1.8) soreness += 0.75;
+  }
+  if (avgHr && maxHr) {
+    const hrRatio = maxHr / avgHr;
+    if (hrRatio > 1.35) soreness += 1;
+  }
+  return clamp(Math.round(soreness), 0, 10);
+}
+
 function estimateRide(file, text = "") {
   const lower = `${file.name} ${text}`.toLowerCase();
   const distance =
@@ -165,14 +195,17 @@ function estimateRide(file, text = "") {
     Math.round(minutes * 9.5);
   const twentyMinutePower = numberFromText(lower, [/20[_ -]?min(?:ute)?[_ -]?power[^0-9]*(\d+(?:\.\d+)?)/, /best_20[^0-9]*(\d+(?:\.\d+)?)/]);
   const normalizedPower = numberFromText(lower, [/normalized[_ -]?power[^0-9]*(\d+(?:\.\d+)?)/, /\bnp[^0-9]*(\d+(?:\.\d+)?)/]);
-  const averagePower = numberFromText(lower, [/average[_ -]?power[^0-9]*(\d+(?:\.\d+)?)/, /avg[_ -]?power[^0-9]*(\d+(?:\.\d+)?)/, /\bpower[^0-9]*(\d+(?:\.\d+)?)/]);
+  const avgPower = numberFromText(lower, [/average[_ -]?power[^0-9]*(\d+(?:\.\d+)?)/, /avg[_ -]?power[^0-9]*(\d+(?:\.\d+)?)/, /\bpower[^0-9]*(\d+(?:\.\d+)?)/]);
+  const maxPower = numberFromText(lower, [/max(?:imum)?[_ -]?power[^0-9]*(\d+(?:\.\d+)?)/]);
+  const avgHr = numberFromText(lower, [/avg[_ -]?(?:heart[_ -]?rate|hr)[^0-9]*(\d+(?:\.\d+)?)/, /heart[_ -]?rate[^0-9]*(\d+(?:\.\d+)?)/, /\bhr[^0-9]*(\d+(?:\.\d+)?)/, /bpm[^0-9]*(\d+(?:\.\d+)?)/]);
+  const maxHr = numberFromText(lower, [/max(?:imum)?[_ -]?(?:heart[_ -]?rate|hr)[^0-9]*(\d+(?:\.\d+)?)/]);
   const ftpEstimate =
     twentyMinutePower ? Math.round(twentyMinutePower * 0.95) :
     normalizedPower ? Math.round(normalizedPower * 0.9) :
-    averagePower && minutes >= 35 ? Math.round(averagePower * 0.88) :
+    avgPower && minutes >= 35 ? Math.round(avgPower * 0.88) :
     null;
   const load = clamp(Math.round(minutes * 0.55 + distance * 0.5 + calories / 70), 25, 170);
-  return { distance, minutes, calories, load, ftpEstimate };
+  return { distance, minutes, calories, load, ftpEstimate, avgPower, maxPower, avgHr, maxHr };
 }
 
 function formatPace(paceMinPerKm) {
@@ -655,6 +688,13 @@ function switchSleepTab(tab) {
   document.getElementById("sleep-tab-manual").classList.toggle("active", tab === "manual");
 }
 
+function switchCyclingInputTab(tab) {
+  document.getElementById("rides-cycling-upload-panel").style.display = tab === "upload" ? "" : "none";
+  document.getElementById("rides-cycling-manual-panel").style.display = tab === "manual" ? "" : "none";
+  document.getElementById("rides-cycling-tab-upload").classList.toggle("active", tab === "upload");
+  document.getElementById("rides-cycling-tab-manual").classList.toggle("active", tab === "manual");
+}
+
 function switchNutritionTab(tab) {
   currentNutritionTab = tab;
   document.getElementById("nutrition-photo-panel").style.display = tab === "photo" ? "" : "none";
@@ -847,22 +887,32 @@ async function analyzeWithAI(type, file, text, image) {
 
 // ── Ride / sleep / food upload helpers ───────────────────────────────────────
 
-async function applyRideEstimate(file, text, image) {
+async function applyRideEstimate(file, text, headerOverride, manualOverrides, image) {
   els.rideResult.classList.add("analyzing");
   const fallback = estimateRide(file, text);
   const ai = await analyzeWithAI("ride", file, text, image);
   els.rideResult.classList.remove("analyzing");
 
-  const distance   = ai?.distance_km    ?? fallback.distance;
-  const minutes    = ai?.duration_min   ?? fallback.minutes;
-  const calories   = ai?.calories       ?? fallback.calories;
-  const tss        = ai?.tss            ?? fallback.load;
-  const ftpWatts   = ai?.ftp_watts      ?? fallback.ftpEstimate;
+  // Manual entries are ground truth for every field — AI/fallback only fill in
+  // whatever the user didn't type. TSS and Soreness are always recomputed from
+  // these numbers (never trusted from AI directly) so a logged ride affects
+  // both scores the same way regardless of where the numbers came from.
+  const distance   = manualOverrides?.distance   ?? (ai?.distance_km     ?? fallback.distance);
+  const minutes    = manualOverrides?.movingTime ?? (ai?.duration_min    ?? fallback.minutes);
+  const calories   = manualOverrides?.calories   ?? (ai?.calories        ?? fallback.calories);
+  const avgPower   = manualOverrides?.avgPower   ?? (ai?.avg_power_watts ?? fallback.avgPower);
+  const maxPower   = manualOverrides?.maxPower   ?? (ai?.max_power_watts ?? fallback.maxPower);
+  const avgHr      = manualOverrides?.avgHr      ?? (ai?.avg_heart_rate  ?? fallback.avgHr);
+  const maxHr      = manualOverrides?.maxHr      ?? (ai?.max_heart_rate  ?? fallback.maxHr);
+  const ftpWatts   = ai?.ftp_watts ?? fallback.ftpEstimate;
   const sessionTitle = ai?.session_title;
   const sessionNote  = ai?.session_note;
   const coachTip     = ai?.coach_tip;
 
+  const tss = calculateRideTSS({ minutes, avgPower, ftp: state.ftp }) ?? (ai?.tss ?? fallback.load);
   state.trainingLoad = clamp(Math.round(tss), 5, 200);
+  state.soreness = calculateSorenessEstimate({ tss: state.trainingLoad, avgPower, maxPower, avgHr, maxHr });
+  inputs.soreness.value = state.soreness;
   if (ftpWatts) {
     state.ftp = clamp(Math.round(ftpWatts), 120, 430);
     state.targetFtp = Math.max(state.targetFtp, state.ftp + 20);
@@ -872,10 +922,10 @@ async function applyRideEstimate(file, text, image) {
   state.hydration = clamp(2.4 + minutes / 130, 2.4, 4.2);
   inputs.trainingLoad.value = state.trainingLoad;
 
-  const label = ai ? "AI" : "Estimated";
+  const label = ai ? "AI" : (manualOverrides ? "Logged" : "Estimated");
   els.rideResult.innerHTML = `
-    <span>${summarizeFile(file)}</span>
-    <strong>${label}: ${Math.round(distance)} km · ${Math.round(minutes)} min · ${Math.round(calories)} kcal · ${state.trainingLoad} TSS${ftpWatts ? ` · ${state.ftp} W FTP` : ""}</strong>
+    <span>${headerOverride || summarizeFile(file)}</span>
+    <strong>${label}: ${Math.round(distance)} km · ${Math.round(minutes)} min · ${Math.round(calories)} kcal · ${state.trainingLoad} TSS${avgPower ? ` · ${Math.round(avgPower)}W avg` : ""}${maxPower ? ` · ${Math.round(maxPower)}W max` : ""}${avgHr ? ` · ${Math.round(avgHr)} bpm avg` : ""}${maxHr ? ` · ${Math.round(maxHr)} bpm max` : ""}${ftpWatts ? ` · ${state.ftp} W FTP` : ""} · Soreness ${state.soreness}/10</strong>
     ${sessionTitle ? `<em>${escapeHtml(sessionTitle)} — ${escapeHtml(sessionNote || "")}</em>` : ""}
     ${coachTip ? `<small>${escapeHtml(coachTip)}</small>` : ""}
   `;
@@ -886,12 +936,17 @@ async function applyRideEstimate(file, text, image) {
     minutes: Math.round(minutes),
     calories: Math.round(calories),
     tss: state.trainingLoad,
+    avgPower: avgPower ? Math.round(avgPower) : null,
+    maxPower: maxPower ? Math.round(maxPower) : null,
+    avgHr: avgHr ? Math.round(avgHr) : null,
+    maxHr: maxHr ? Math.round(maxHr) : null,
+    soreness: state.soreness,
     ftpWatts: ftpWatts ? state.ftp : null,
     sessionTitle: sessionTitle || null,
     sessionNote: sessionNote || null,
     coachTip: coachTip || null,
     filename: file.name,
-    source: ai ? "ai" : "estimated"
+    source: ai ? "ai" : (manualOverrides ? "manual" : "estimated")
   });
 }
 
@@ -1048,6 +1103,25 @@ async function analyzeSleepText() {
   btn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 14H11v-2h2zm0-4H11V7h2z"/></svg> Enter`;
 }
 
+async function analyzeRideText() {
+  const distance   = parseFloat(document.getElementById("rideDistanceInput").value) || 0;
+  const avgPower   = parseFloat(document.getElementById("rideAvgPowerInput").value) || 0;
+  const maxPower   = parseFloat(document.getElementById("rideMaxPowerInput").value) || 0;
+  const avgHr      = parseFloat(document.getElementById("rideAvgHrInput").value) || 0;
+  const maxHr      = parseFloat(document.getElementById("rideMaxHrInput").value) || 0;
+  const movingTime = parseFloat(document.getElementById("rideMovingTimeInput").value) || 0;
+  const calories   = parseFloat(document.getElementById("rideCaloriesInput").value) || 0;
+  if (!distance && !avgPower && !movingTime && !calories) return;
+  const content = `Distance: ${distance} km\nAvg Power: ${avgPower} W\nMax Power: ${maxPower} W\nAvg Heart Rate: ${avgHr} bpm\nMax Heart Rate: ${maxHr} bpm\nMoving Time: ${movingTime} min\nCalories: ${calories} kcal`;
+
+  const btn = document.getElementById("analyzeRideBtn");
+  btn.disabled = true;
+  btn.textContent = "Recording…";
+  await applyRideEstimate({ name: "Manual entry", size: 0 }, content, "Manual ride entry", { distance, avgPower, maxPower, avgHr, maxHr, movingTime, calories });
+  btn.disabled = false;
+  btn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 14H11v-2h2zm0-4H11V7h2z"/></svg> Enter`;
+}
+
 async function applyFoodEstimate(file, text, mealType) {
   const fallback = estimateFood(file);
   const ai = await analyzeWithAI("nutrition", file, text || "");
@@ -1170,7 +1244,7 @@ function renderHistoryList(container, type, records, emptyText, formatItem) {
 
 function renderHistory() {
   renderHistoryList(els.historyRides, "ride", historyData.rides, "No rides logged yet.", (r) =>
-    `${r.distance} km · ${r.minutes} min · ${r.calories} kcal · ${r.tss} TSS${r.ftpWatts ? ` · ${r.ftpWatts} W FTP` : ""}`
+    `${r.distance} km · ${r.minutes} min · ${r.calories} kcal · ${r.tss} TSS${r.avgPower ? ` · ${r.avgPower}W avg` : ""}${r.maxPower ? ` · ${r.maxPower}W max` : ""}${r.avgHr ? ` · ${r.avgHr} bpm avg` : ""}${r.maxHr ? ` · ${r.maxHr} bpm max` : ""}${r.ftpWatts ? ` · ${r.ftpWatts} W FTP` : ""}${r.soreness != null ? ` · Soreness ${r.soreness}/10` : ""}`
   );
   renderHistoryList(els.historyRuns, "run", historyData.runs, "No runs logged yet.", (r) =>
     `${r.distance} km · ${r.minutes} min · ${formatPace(r.pace)} · ${r.calories} kcal${r.heartRate ? ` · ${r.heartRate} bpm` : ""}`
@@ -1279,7 +1353,7 @@ document.querySelector("#rideUpload").addEventListener("change", async (event) =
     const reader = new FileReader();
     reader.addEventListener("load", async () => {
       showPhotoPreview(preview, reader.result, file.name);
-      await applyRideEstimate(file, "", reader.result);
+      await applyRideEstimate(file, "", undefined, undefined, reader.result);
     });
     reader.addEventListener("error", async () => {
       showPhotoPreview(preview, null, file.name);

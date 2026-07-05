@@ -33,7 +33,7 @@ function ollamaGenerate(prompt, timeoutMs = 180000, extraOpts = {}) {
 function buildPrompt(type, filename, content) {
   const snip = content.slice(0, 4000);
   if (type === "ride") {
-    return `/no_think\nYou are a cycling data analyst. Analyze this ride data and return ONLY a single-line JSON object with no markdown, no explanation, no extra text.\nFilename: ${filename}\nContent:\n${snip}\n\nReturn exactly this structure (use null if unknown):\n{"distance_km":number,"duration_min":number,"calories":number,"tss":number,"avg_power_watts":number,"ftp_watts":number,"session_title":"string","session_note":"string","coach_tip":"string"}`;
+    return `/no_think\nYou are a cycling data analyst and recovery coach. Analyze this ride data and return ONLY a single-line JSON object with no markdown, no explanation, no extra text. Read the reported numbers as-is — do not recalculate distance, power, or heart rate; the app derives TSS and Soreness itself from whatever you report.\nFilename: ${filename}\nContent:\n${snip}\n\nReturn exactly this structure (use null if unknown). "coach_tip" must be one short sentence recommending how much rest, nutrition, and sleep the rider needs based on this effort:\n{"distance_km":number,"duration_min":number,"calories":number,"avg_power_watts":number,"max_power_watts":number,"avg_heart_rate":number,"max_heart_rate":number,"ftp_watts":number,"session_title":"string","session_note":"string","coach_tip":"string"}`;
   }
   if (type === "run") {
     return `/no_think\nYou are a running coach and performance analyst. Analyze this run and return ONLY a single-line JSON object with no markdown, no explanation, no extra text.\nFilename: ${filename}\nContent:\n${snip}\n\nReturn exactly this structure. Use null only for a field when it truly cannot be determined from the content. Always fill in session_note and coach_tip with one short sentence each, based on whatever data is available:\n{"distance_km":number,"duration_min":number,"calories":number,"pace_min_km":number,"avg_heart_rate":number,"training_load":number,"session_title":"string","session_note":"string 1 sentence describing the run","coach_tip":"string 1 sentence of running-specific advice"}`;
@@ -54,14 +54,19 @@ function buildPrompt(type, filename, content) {
 // actual image, so unlike buildPrompt() it must never estimate or recompute the
 // on-screen numbers — only session_title/session_note/coach_tip are its own words.
 const VISION_SCHEMAS = {
-  ride: `{"distance_km":number,"duration_min":number,"calories":number,"tss":number,"avg_power_watts":number,"ftp_watts":number,"session_title":"string","session_note":"string","coach_tip":"string"}`,
+  ride: `{"distance_km":number,"duration_min":number,"calories":number,"avg_power_watts":number,"max_power_watts":number,"avg_heart_rate":number,"max_heart_rate":number,"ftp_watts":number,"session_title":"string","session_note":"string","coach_tip":"string"}`,
   run:  `{"distance_km":number,"duration_min":number,"calories":number,"pace_min_km":number,"avg_heart_rate":number,"training_load":number,"session_title":"string","session_note":"string","coach_tip":"string"}`,
   swim: `{"distance_m":number,"duration_min":number,"calories":number,"pace_per_100m":number,"avg_heart_rate":number,"training_load":number,"session_title":"string","session_note":"string","coach_tip":"string"}`
 };
 const VISION_ACTIVITY = { ride: "cycling ride", run: "run", swim: "swim" };
+// Ride-only: the app derives TSS and Soreness from the numbers, so its coach_tip
+// asks for recovery guidance instead of the generic training commentary run/swim get.
+const VISION_COACH_HINT = {
+  ride: ' For "coach_tip", recommend how much rest, nutrition, and sleep the rider needs based on this effort.'
+};
 
 function buildVisionPrompt(type, filename) {
-  return `You are looking at a screenshot from a fitness tracking app showing a completed ${VISION_ACTIVITY[type]}. Read the EXACT numbers that are visibly printed on screen. Do not estimate, recalculate, round differently, or invent any value that is not clearly shown in the image — copy it exactly as displayed. If a field is not visible anywhere in the image, set it to null rather than guessing.\nOnly "session_title", "session_note", and "coach_tip" are your own analysis and coaching feedback; every other field must come directly from what is printed in the image.\nFilename: ${filename}\n\nReturn ONLY a single-line JSON object with no markdown and no explanation, in exactly this structure:\n${VISION_SCHEMAS[type]}`;
+  return `You are looking at a screenshot from a fitness tracking app showing a completed ${VISION_ACTIVITY[type]}. Read the EXACT numbers that are visibly printed on screen. Do not estimate, recalculate, round differently, or invent any value that is not clearly shown in the image — copy it exactly as displayed. If a field is not visible anywhere in the image, set it to null rather than guessing.\nOnly "session_title", "session_note", and "coach_tip" are your own analysis and coaching feedback; every other field must come directly from what is printed in the image.${VISION_COACH_HINT[type] || ""}\nFilename: ${filename}\n\nReturn ONLY a single-line JSON object with no markdown and no explanation, in exactly this structure:\n${VISION_SCHEMAS[type]}`;
 }
 
 function buildSleepVisionPrompt(filename) {
