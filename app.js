@@ -125,6 +125,10 @@ function escapeHtml(value) {
   });
 }
 
+function formatCoachText(value) {
+  return escapeHtml(value).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+}
+
 function formatSleep(hours) {
   let whole = Math.floor(hours);
   let minutes = Math.round((hours - whole) * 60);
@@ -1712,7 +1716,7 @@ function renderCoachMessages() {
     if (msg.role === "error") {
       return `<div class="coach-msg coach-msg-error"><span>${escapeHtml(msg.text)}</span>${time}</div>`;
     }
-    return `<div class="coach-msg coach-msg-coach"><div class="coach-msg-avatar"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg></div><span>${escapeHtml(msg.text)}</span>${time}</div>`;
+    return `<div class="coach-msg coach-msg-coach"><div class="coach-msg-avatar"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg></div><span>${formatCoachText(msg.text)}</span>${time}</div>`;
   }).join("");
   container.scrollTop = container.scrollHeight;
 }
@@ -1736,7 +1740,7 @@ function renderCoachHistory() {
       lastDay = day;
     }
     parts.push(`<div class="coach-msg coach-msg-user"><span>${escapeHtml(turn.message)}</span><time class="coach-msg-time">${formatChatTime(turn.timestamp)}</time></div>`);
-    parts.push(`<div class="coach-msg coach-msg-coach"><div class="coach-msg-avatar"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg></div><span>${escapeHtml(turn.response)}</span><time class="coach-msg-time">${formatChatTime(turn.timestamp)}</time></div>`);
+    parts.push(`<div class="coach-msg coach-msg-coach"><div class="coach-msg-avatar"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg></div><span>${formatCoachText(turn.response)}</span><time class="coach-msg-time">${formatChatTime(turn.timestamp)}</time></div>`);
   }
   container.innerHTML = parts.join("");
   container.scrollTop = container.scrollHeight;
