@@ -33,7 +33,7 @@ function ollamaGenerate(prompt, timeoutMs = 180000, extraOpts = {}) {
 function buildPrompt(type, filename, content) {
   const snip = content.slice(0, 4000);
   if (type === "ride") {
-    return `/no_think\nYou are a cycling data analyst and recovery coach. Analyze this ride data and return ONLY a single-line JSON object with no markdown, no explanation, no extra text. Read the reported numbers as-is — do not recalculate distance, power, or heart rate; the app derives TSS and Soreness itself from whatever you report.\nFilename: ${filename}\nContent:\n${snip}\n\nReturn exactly this structure (use null if unknown). "coach_tip" must be one short sentence recommending how much rest, nutrition, and sleep the rider needs based on this effort:\n{"distance_km":number,"duration_min":number,"calories":number,"avg_power_watts":number,"max_power_watts":number,"avg_heart_rate":number,"max_heart_rate":number,"ftp_watts":number,"session_title":"string","session_note":"string","coach_tip":"string"}`;
+    return `/no_think\nYou are a cycling data analyst and recovery coach. Analyze this ride data and return ONLY a single-line JSON object with no markdown, no explanation, no extra text. Read the reported numbers as-is — do not recalculate distance, power, or heart rate; the app derives TSS and Soreness itself from whatever you report. Only set ftp_watts if the data explicitly reports an FTP value or a 20-minute test result — never estimate or derive it from this ride's average power; use null otherwise, even for a long or hard ride.\nFilename: ${filename}\nContent:\n${snip}\n\nReturn exactly this structure (use null if unknown). "coach_tip" must be one short sentence recommending how much rest, nutrition, and sleep the rider needs based on this effort:\n{"distance_km":number,"duration_min":number,"calories":number,"avg_power_watts":number,"max_power_watts":number,"avg_heart_rate":number,"max_heart_rate":number,"ftp_watts":number,"session_title":"string","session_note":"string","coach_tip":"string"}`;
   }
   if (type === "run") {
     return `/no_think\nYou are a running coach and performance analyst. Analyze this run and return ONLY a single-line JSON object with no markdown, no explanation, no extra text.\nFilename: ${filename}\nContent:\n${snip}\n\nReturn exactly this structure. Use null only for a field when it truly cannot be determined from the content. Always fill in session_note and coach_tip with one short sentence each, based on whatever data is available:\n{"distance_km":number,"duration_min":number,"calories":number,"pace_min_km":number,"avg_heart_rate":number,"training_load":number,"session_title":"string","session_note":"string 1 sentence describing the run","coach_tip":"string 1 sentence of running-specific advice"}`;
@@ -62,7 +62,7 @@ const VISION_ACTIVITY = { ride: "cycling ride", run: "run", swim: "swim" };
 // Ride-only: the app derives TSS and Soreness from the numbers, so its coach_tip
 // asks for recovery guidance instead of the generic training commentary run/swim get.
 const VISION_COACH_HINT = {
-  ride: ' For "coach_tip", recommend how much rest, nutrition, and sleep the rider needs based on this effort.'
+  ride: ' For "coach_tip", recommend how much rest, nutrition, and sleep the rider needs based on this effort. Only set "ftp_watts" if the screen explicitly shows an FTP value or a 20-minute test result — never estimate or derive it from this ride\'s average power; use null otherwise, even for a long or hard ride.'
 };
 
 function buildVisionPrompt(type, filename) {

@@ -194,16 +194,14 @@ function estimateRide(file, text = "") {
     numberFromText(lower, [/calories[^0-9]*(\d+(?:\.\d+)?)/, /kcal[^0-9]*(\d+(?:\.\d+)?)/]) ||
     Math.round(minutes * 9.5);
   const twentyMinutePower = numberFromText(lower, [/20[_ -]?min(?:ute)?[_ -]?power[^0-9]*(\d+(?:\.\d+)?)/, /best_20[^0-9]*(\d+(?:\.\d+)?)/]);
-  const normalizedPower = numberFromText(lower, [/normalized[_ -]?power[^0-9]*(\d+(?:\.\d+)?)/, /\bnp[^0-9]*(\d+(?:\.\d+)?)/]);
   const avgPower = numberFromText(lower, [/average[_ -]?power[^0-9]*(\d+(?:\.\d+)?)/, /avg[_ -]?power[^0-9]*(\d+(?:\.\d+)?)/, /\bpower[^0-9]*(\d+(?:\.\d+)?)/]);
   const maxPower = numberFromText(lower, [/max(?:imum)?[_ -]?power[^0-9]*(\d+(?:\.\d+)?)/]);
   const avgHr = numberFromText(lower, [/avg[_ -]?(?:heart[_ -]?rate|hr)[^0-9]*(\d+(?:\.\d+)?)/, /heart[_ -]?rate[^0-9]*(\d+(?:\.\d+)?)/, /\bhr[^0-9]*(\d+(?:\.\d+)?)/, /bpm[^0-9]*(\d+(?:\.\d+)?)/]);
   const maxHr = numberFromText(lower, [/max(?:imum)?[_ -]?(?:heart[_ -]?rate|hr)[^0-9]*(\d+(?:\.\d+)?)/]);
-  const ftpEstimate =
-    twentyMinutePower ? Math.round(twentyMinutePower * 0.95) :
-    normalizedPower ? Math.round(normalizedPower * 0.9) :
-    avgPower && minutes >= 35 ? Math.round(avgPower * 0.88) :
-    null;
+  // FTP only auto-updates from a genuine 20-minute test effort — a regular
+  // ride's average power (even a long one) is not a reliable FTP signal, so
+  // it's deliberately excluded here even though avgPower is still used for TSS.
+  const ftpEstimate = twentyMinutePower ? Math.round(twentyMinutePower * 0.95) : null;
   const load = clamp(Math.round(minutes * 0.55 + distance * 0.5 + calories / 70), 25, 170);
   return { distance, minutes, calories, load, ftpEstimate, avgPower, maxPower, avgHr, maxHr };
 }
