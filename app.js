@@ -389,15 +389,34 @@ function estimateSwim(file, text = "") {
   return { distance, minutes, calories, pace, heartRate, load };
 }
 
+// Sleep quality is always derived from these five numbers — Total Sleep, Deep,
+// Light, REM, Awake — using the same formula no matter whether they came from
+// manual entry, AI analysis, or the no-data fallback estimate below. It blends
+// sleep efficiency (asleep vs. total time in bed, so Awake directly lowers the
+// score) with how close Deep and REM are to their healthy proportion of total
+// sleep (Light fills the remainder, so it shapes those proportions too).
+function calculateSleepQualityPct({ duration, deep = 0, light = 0, rem = 0, awake = 0 }) {
+  const asleep = duration || (deep + light + rem);
+  if (asleep <= 0) return 50;
+  const timeInBed = asleep + awake;
+  const efficiency = clamp(asleep / timeInBed, 0, 1);
+  const deepRatio  = clamp((deep / asleep) / 0.20, 0, 1);
+  const remRatio   = clamp((rem / asleep) / 0.22, 0, 1);
+  const score = efficiency * 0.5 + deepRatio * 0.3 + remRatio * 0.2;
+  return clamp(Math.round(score * 100), 20, 100);
+}
+
 function estimateSleep(file, text = "") {
   const lower = `${file.name} ${text}`.toLowerCase();
   const duration =
     numberFromText(lower, [/sleep[^0-9]*(\d+(?:\.\d+)?)/, /duration[^0-9]*(\d+(?:\.\d+)?)/, /(\d+(?:\.\d+)?)\s?h/]) ||
     clamp(6.4 + fileSizeMb(file) * 0.45, 5.3, 8.9);
-  const deep = numberFromText(lower, [/deep[^0-9]*(\d+(?:\.\d+)?)/]) || duration * 0.18;
-  const rem = numberFromText(lower, [/rem[^0-9]*(\d+(?:\.\d+)?)/]) || duration * 0.22;
-  const quality = clamp(Math.round(48 + duration * 4.5 + deep * 5 + rem * 3), 42, 96);
-  return { duration, deep, rem, quality };
+  const deep  = numberFromText(lower, [/deep[^0-9]*(\d+(?:\.\d+)?)/])  || duration * 0.18;
+  const rem   = numberFromText(lower, [/rem[^0-9]*(\d+(?:\.\d+)?)/])   || duration * 0.22;
+  const light = numberFromText(lower, [/light[^0-9]*(\d+(?:\.\d+)?)/]) || clamp(duration - deep - rem, 0, duration);
+  const awake = numberFromText(lower, [/awake[^0-9]*(\d+(?:\.\d+)?)/]) || clamp(duration * 0.05, 0, 1);
+  const quality = calculateSleepQualityPct({ duration, deep, light, rem, awake });
+  return { duration, deep, light, rem, awake, quality };
 }
 
 function estimateFood(file) {
@@ -964,18 +983,22 @@ async function applySwimEstimate(file, text, image) {
   });
 }
 
-async function applySleepEstimate(file, text, headerOverride, manualOverrides) {
+async function applySleepEstimate(file, text, headerOverride, manualOverrides, image) {
   els.sleepResult.classList.add("analyzing");
   const fallback = estimateSleep(file, text);
-  const ai = await analyzeWithAI("sleep", file, text);
+  const ai = await analyzeWithAI("sleep", file, text, image);
   els.sleepResult.classList.remove("analyzing");
 
-  // Manual entries are ground truth for duration/deep/rem — AI only supplies
-  // the quality estimate and qualitative feedback, never overrides typed numbers.
-  const duration  = manualOverrides?.duration ?? (ai?.duration_hours   ?? fallback.duration);
-  const deep      = manualOverrides?.deep     ?? (ai?.deep_sleep_hours ?? fallback.deep);
-  const rem       = manualOverrides?.rem      ?? (ai?.rem_hours        ?? fallback.rem);
-  const quality   = ai?.sleep_quality_pct   ?? fallback.quality;
+  // Manual entries are ground truth for every stage — AI/fallback only fill in
+  // whatever the user didn't type. Quality % is always recomputed from these
+  // five numbers (never trusted from AI directly) so it accurately reflects
+  // whatever Total Sleep / Deep / Light / REM / Awake values are actually in hand.
+  const duration  = manualOverrides?.duration ?? (ai?.duration_hours    ?? fallback.duration);
+  const deep      = manualOverrides?.deep     ?? (ai?.deep_sleep_hours  ?? fallback.deep);
+  const light     = manualOverrides?.light    ?? (ai?.light_sleep_hours ?? fallback.light);
+  const rem       = manualOverrides?.rem      ?? (ai?.rem_hours         ?? fallback.rem);
+  const awake     = manualOverrides?.awake    ?? (ai?.awake_hours       ?? fallback.awake);
+  const quality   = calculateSleepQualityPct({ duration, deep, light, rem, awake });
   const recovNote = ai?.recovery_note;
   const coachTip  = ai?.coach_tip;
 
@@ -987,7 +1010,7 @@ async function applySleepEstimate(file, text, headerOverride, manualOverrides) {
   const label = ai ? "AI" : "Estimated";
   els.sleepResult.innerHTML = `
     <span>${headerOverride || summarizeFile(file)}</span>
-    <strong>${label}: ${formatSleep(duration)} sleep · ${formatSleep(deep)} deep · ${formatSleep(rem)} REM · ${state.sleepQuality}% quality</strong>
+    <strong>${label}: ${formatSleep(duration)} sleep · ${formatSleep(deep)} deep · ${formatSleep(light)} light · ${formatSleep(rem)} REM · ${formatSleep(awake)} awake · ${state.sleepQuality}% quality</strong>
     ${recovNote ? `<em>${escapeHtml(recovNote)}</em>` : ""}
     ${coachTip  ? `<small>${escapeHtml(coachTip)}</small>`  : ""}
   `;
@@ -996,7 +1019,9 @@ async function applySleepEstimate(file, text, headerOverride, manualOverrides) {
   saveHistoryRecord("sleep", {
     duration: state.sleepHours,
     deep: Number(deep.toFixed(1)),
+    light: Number(light.toFixed(1)),
     rem: Number(rem.toFixed(1)),
+    awake: Number(awake.toFixed(1)),
     quality: state.sleepQuality,
     recoveryNote: recovNote || null,
     coachTip: coachTip || null,
@@ -1018,7 +1043,7 @@ async function analyzeSleepText() {
   const btn = document.getElementById("analyzeSleepBtn");
   btn.disabled = true;
   btn.textContent = "Recording…";
-  await applySleepEstimate({ name: "Manual entry", size: 0 }, content, "Manual sleep entry", { duration: total, deep, rem });
+  await applySleepEstimate({ name: "Manual entry", size: 0 }, content, "Manual sleep entry", { duration: total, deep, light, rem, awake });
   btn.disabled = false;
   btn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 14H11v-2h2zm0-4H11V7h2z"/></svg> Enter`;
 }
@@ -1154,7 +1179,7 @@ function renderHistory() {
     `${r.distance} m · ${r.minutes} min · ${formatSwimPace(r.pace)} · ${r.calories} kcal${r.heartRate ? ` · ${r.heartRate} bpm` : ""}`
   );
   renderHistoryList(els.historySleep, "sleep", historyData.sleep, "No sleep records logged yet.", (r) =>
-    `${formatSleep(r.duration)} sleep · ${formatSleep(r.deep)} deep · ${formatSleep(r.rem)} REM · ${r.quality}% quality`
+    `${formatSleep(r.duration)} sleep · ${formatSleep(r.deep)} deep${r.light != null ? ` · ${formatSleep(r.light)} light` : ""} · ${formatSleep(r.rem)} REM${r.awake != null ? ` · ${formatSleep(r.awake)} awake` : ""} · ${r.quality}% quality`
   );
   renderHistoryList(els.historyNutrition, "nutrition", historyData.nutrition, "No meals logged yet.", (r) =>
     `${r.mealType.charAt(0).toUpperCase() + r.mealType.slice(1)} · ${r.carbs}g carbs · ${r.protein}g protein · ${r.fluids}ml fluids · ${r.calories} kcal`
@@ -1329,7 +1354,7 @@ document.querySelector("#sleepUpload").addEventListener("change", async (event) 
     const reader = new FileReader();
     reader.addEventListener("load", async () => {
       showPhotoPreview(preview, reader.result, file.name);
-      await applySleepEstimate(file, "");
+      await applySleepEstimate(file, "", undefined, undefined, reader.result);
     });
     reader.addEventListener("error", async () => {
       showPhotoPreview(preview, null, file.name);

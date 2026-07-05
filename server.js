@@ -42,7 +42,7 @@ function buildPrompt(type, filename, content) {
     return `/no_think\nYou are a swim coach and performance analyst. Analyze this swim session and return ONLY a single-line JSON object with no markdown, no explanation, no extra text.\nFilename: ${filename}\nContent:\n${snip}\n\nReturn exactly this structure. Use null only for a field when it truly cannot be determined from the content. Always fill in session_note and coach_tip with one short sentence each, based on whatever data is available:\n{"distance_m":number,"duration_min":number,"calories":number,"pace_per_100m":number,"avg_heart_rate":number,"training_load":number,"session_title":"string","session_note":"string 1 sentence describing the swim","coach_tip":"string 1 sentence of swimming-specific advice"}`;
   }
   if (type === "sleep") {
-    return `/no_think\nYou are a sleep science analyst advising a cyclist. Analyze this sleep record and return ONLY a single-line JSON object with no markdown, no explanation, no extra text.\nFilename: ${filename}\nContent:\n${snip}\n\nReturn exactly this structure. Use null only for duration_hours, deep_sleep_hours, rem_hours, light_sleep_hours, sleep_quality_pct, bedtime, and wake_time when that specific value truly cannot be determined from the content. Always fill in recovery_note and coach_tip with one short sentence each, based on whatever sleep data is available, even if other fields are null:\n{"duration_hours":number,"deep_sleep_hours":number,"rem_hours":number,"light_sleep_hours":number,"sleep_quality_pct":number,"bedtime":"string","wake_time":"string","recovery_note":"string 1 sentence on this sleep's recovery quality","coach_tip":"string 1 sentence of cycling-specific advice based on this sleep"}`;
+    return `/no_think\nYou are a sleep science analyst advising a cyclist. Analyze this sleep record and return ONLY a single-line JSON object with no markdown, no explanation, no extra text. Read the exact hours reported for each sleep stage — do not estimate or recalculate them. The app computes the sleep quality percentage itself from these stage hours, so do not include a quality score.\nFilename: ${filename}\nContent:\n${snip}\n\nReturn exactly this structure. Use null only for duration_hours, deep_sleep_hours, rem_hours, light_sleep_hours, awake_hours, bedtime, and wake_time when that specific value truly cannot be determined from the content. Always fill in recovery_note and coach_tip with one short sentence each, based on whatever sleep data is available, even if other fields are null:\n{"duration_hours":number,"deep_sleep_hours":number,"rem_hours":number,"light_sleep_hours":number,"awake_hours":number,"bedtime":"string","wake_time":"string","recovery_note":"string 1 sentence on this sleep's recovery quality","coach_tip":"string 1 sentence of cycling-specific advice based on this sleep"}`;
   }
   if (type === "nutrition") {
     return `/no_think\nYou are a sports nutritionist advising a cyclist. Analyze this single meal and return ONLY a single-line JSON object with no markdown, no explanation, no extra text. Estimate realistic totals for this meal alone, based on typical portion sizes.\nFilename: ${filename}\nContent:\n${snip}\n\nReturn exactly this structure:\n{"carbs_g":number,"protein_g":number,"fluids_ml":number,"calories":number,"meal_summary":"string 1 sentence describing the meal","coach_tip":"string 1 sentence cycling-specific fuel advice"}`;
@@ -62,6 +62,10 @@ const VISION_ACTIVITY = { ride: "cycling ride", run: "run", swim: "swim" };
 
 function buildVisionPrompt(type, filename) {
   return `You are looking at a screenshot from a fitness tracking app showing a completed ${VISION_ACTIVITY[type]}. Read the EXACT numbers that are visibly printed on screen. Do not estimate, recalculate, round differently, or invent any value that is not clearly shown in the image — copy it exactly as displayed. If a field is not visible anywhere in the image, set it to null rather than guessing.\nOnly "session_title", "session_note", and "coach_tip" are your own analysis and coaching feedback; every other field must come directly from what is printed in the image.\nFilename: ${filename}\n\nReturn ONLY a single-line JSON object with no markdown and no explanation, in exactly this structure:\n${VISION_SCHEMAS[type]}`;
+}
+
+function buildSleepVisionPrompt(filename) {
+  return `You are looking at a screenshot from a sleep tracking app or wearable showing a night's sleep summary. Read the EXACT hours/numbers that are visibly printed on screen for each sleep stage. Do not estimate, recalculate, or invent any value that is not clearly shown in the image — copy it exactly as displayed. If a field is not visible anywhere in the image, set it to null rather than guessing.\nOnly "recovery_note" and "coach_tip" are your own analysis and coaching feedback; every other field must come directly from what is printed in the image. Do not include a quality/score field — the app calculates that itself from the stage hours.\nFilename: ${filename}\n\nReturn ONLY a single-line JSON object with no markdown and no explanation, in exactly this structure:\n{"duration_hours":number,"deep_sleep_hours":number,"rem_hours":number,"light_sleep_hours":number,"awake_hours":number,"bedtime":"string","wake_time":"string","recovery_note":"string","coach_tip":"string"}`;
 }
 
 function extractJson(text) {
@@ -428,12 +432,12 @@ http.createServer(async (req, res) => {
     if (!type || !["ride","run","swim","sleep","nutrition"].includes(type))
       return json(res, 400, { error: "Invalid type" });
 
-    const useVision = ["ride","run","swim"].includes(type) && !!image;
+    const useVision = ["ride","run","swim","sleep"].includes(type) && !!image;
     try {
       let result;
       if (useVision) {
         const base64 = String(image).replace(/^data:image\/\w+;base64,/, "");
-        const prompt = buildVisionPrompt(type, filename || "file");
+        const prompt = type === "sleep" ? buildSleepVisionPrompt(filename || "file") : buildVisionPrompt(type, filename || "file");
         result = await ollamaGenerate(prompt, 180000, { model: VISION_MODEL, images: [base64] });
       } else {
         const prompt = buildPrompt(type, filename || "file", content || "");
