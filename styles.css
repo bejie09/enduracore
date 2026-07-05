@@ -1090,29 +1090,15 @@ input[type="checkbox"] {
   background: var(--accent);
 }
 
-.workout-profile {
-  margin-top: 18px;
+.workout-bar {
+  margin-bottom: 16px;
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #faf8f6;
 }
 
-.workout-profile-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
-}
-
-.workout-profile-head small {
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
-.workout-profile-track {
+.wb-track {
   display: flex;
   align-items: stretch;
   gap: 12px;
@@ -1127,7 +1113,7 @@ input[type="checkbox"] {
 
 .wp-label {
   display: block;
-  margin-bottom: 8px;
+  margin-top: 8px;
   font-size: 0.72rem;
   font-weight: 700;
   line-height: 1.3;
@@ -1179,10 +1165,9 @@ input[type="checkbox"] {
 
 .wp-steady {
   background: var(--accent);
-  opacity: 0.55;
+  opacity: 0.7;
 }
 
-.wp-steady .wp-seg-value,
 .wp-recovery .wp-seg-value,
 .wp-rest .wp-seg-value {
   color: var(--ink);
@@ -1197,42 +1182,6 @@ input[type="checkbox"] {
 .wp-rest {
   background: var(--muted);
   opacity: 0.4;
-}
-
-.workout-profile-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  margin-top: 12px;
-  font-size: 0.78rem;
-  color: var(--muted);
-}
-
-.workout-profile-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.wp-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  background: var(--teal);
-}
-
-.wp-dot.wp-work {
-  background: var(--accent);
-  opacity: 1;
-}
-
-.wp-dot.wp-recovery {
-  background: var(--amber);
-  opacity: 1;
-}
-
-.wp-dot.wp-cooldown {
-  background: var(--teal);
 }
 
 .protocol-list {

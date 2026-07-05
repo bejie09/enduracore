@@ -35,12 +35,6 @@ const els = {
   ftpStatus: document.querySelector("#ftpStatus"),
   weeklyLoad: document.querySelector("#weeklyLoad"),
   loadBar: document.querySelector("#loadBar"),
-  mainSet: document.querySelector("#mainSet"),
-  mainSetCopy: document.querySelector("#mainSetCopy"),
-  warmupDuration: document.querySelector("#warmupDuration"),
-  warmupDetail: document.querySelector("#warmupDetail"),
-  cooldownDuration: document.querySelector("#cooldownDuration"),
-  cooldownDetail: document.querySelector("#cooldownDetail"),
   ftpLevelLabel: document.querySelector("#ftpLevelLabel"),
   ftpLevel: document.querySelector("#ftpLevel"),
   ftpGap: document.querySelector("#ftpGap"),
@@ -52,7 +46,6 @@ const els = {
   vo2Zone: document.querySelector("#vo2Zone"),
   todayBar: document.querySelector("#todayBar"),
   workoutProfileTrack: document.querySelector("#workoutProfileTrack"),
-  workoutProfileSummary: document.querySelector("#workoutProfileSummary"),
   bedtime: document.querySelector("#bedtime"),
   sleepNeed: document.querySelector("#sleepNeed"),
   carbActual: document.querySelector("#carbActual"),
@@ -346,7 +339,7 @@ function wpValueSpan(text) {
   return text ? `<span class="wp-seg-value">${escapeHtml(text)}</span>` : "";
 }
 
-function renderWorkoutProfile(warmupText, mainText, cooldownText, intensity = {}) {
+function renderWorkoutProfile(warmupText, warmupDetail, mainText, mainDetail, cooldownText, cooldownDetail, intensity = {}) {
   const track = els.workoutProfileTrack;
   if (!track) return;
 
@@ -356,18 +349,18 @@ function renderWorkoutProfile(warmupText, mainText, cooldownText, intensity = {}
 
   if (warmupMin === 0 && cooldownMin === 0 && main.kind === "rest") {
     track.innerHTML = `
-      <div class="wp-col" style="flex:1 0 0">
-        <span class="wp-label">Rest / optional<br>${escapeHtml(mainText)}</span>
+      <div class="wp-col" style="flex:1 0 0" title="${escapeHtml(mainDetail || "")}">
         <div class="wp-bars"><span class="wp-seg wp-rest" style="--h:14%"></span></div>
+        <span class="wp-label">Rest / optional<br>${escapeHtml(mainText)}</span>
       </div>`;
   } else {
     const cols = [];
 
     if (warmupMin > 0) {
       cols.push(`
-        <div class="wp-col" style="flex:${Math.max(warmupMin, 3)} 0 0">
-          <span class="wp-label">Warm up<br>${escapeHtml(warmupText)}</span>
+        <div class="wp-col" style="flex:${Math.max(warmupMin, 3)} 0 0" title="${escapeHtml(warmupDetail || "")}">
           <div class="wp-bars"><span class="wp-seg wp-warmup" style="--h:36%">${wpValueSpan(intensity.warmup)}</span></div>
+          <span class="wp-label">Warm up<br>${escapeHtml(warmupText)}</span>
         </div>`);
     }
 
@@ -396,28 +389,20 @@ function renderWorkoutProfile(warmupText, mainText, cooldownText, intensity = {}
       : `Main set<br>${escapeHtml(mainText)}`;
 
     cols.push(`
-      <div class="wp-col" style="flex:${Math.max(mainFlex, 4)} 0 0">
-        <span class="wp-label">${mainLabel}</span>
+      <div class="wp-col" style="flex:${Math.max(mainFlex, 4)} 0 0" title="${escapeHtml(mainDetail || "")}">
         <div class="wp-bars">${barsHtml}</div>
+        <span class="wp-label">${mainLabel}</span>
       </div>`);
 
     if (cooldownMin > 0) {
       cols.push(`
-        <div class="wp-col" style="flex:${Math.max(cooldownMin, 3)} 0 0">
-          <span class="wp-label">Cool down<br>${escapeHtml(cooldownText)}</span>
+        <div class="wp-col" style="flex:${Math.max(cooldownMin, 3)} 0 0" title="${escapeHtml(cooldownDetail || "")}">
           <div class="wp-bars"><span class="wp-seg wp-cooldown" style="--h:26%">${wpValueSpan(intensity.cooldown)}</span></div>
+          <span class="wp-label">Cool down<br>${escapeHtml(cooldownText)}</span>
         </div>`);
     }
 
     track.innerHTML = cols.join("");
-  }
-
-  if (els.workoutProfileSummary) {
-    const parts = [];
-    if (warmupMin > 0) parts.push(`Warm up ${warmupText}`);
-    parts.push(`Main set ${mainText}`);
-    if (cooldownMin > 0) parts.push(`Cool down ${cooldownText}`);
-    els.workoutProfileSummary.textContent = parts.join("  →  ");
   }
 }
 
@@ -459,13 +444,7 @@ function renderTrainingPlanPanel(score) {
     els.thresholdZone.textContent = formatSwimPaceRange(basePace - 0.08, basePace + 0.08);
     els.vo2Zone.textContent = formatSwimPaceRange(basePace - 0.4, basePace - 0.2);
 
-    els.warmupDuration.textContent = rec.warmupMain;
-    els.warmupDetail.textContent = rec.warmupDetail;
-    els.mainSet.textContent = rec.main;
-    els.mainSetCopy.textContent = rec.detail;
-    els.cooldownDuration.textContent = rec.cooldownMain;
-    els.cooldownDetail.textContent = rec.cooldownDetail;
-    renderWorkoutProfile(rec.warmupMain, rec.main, rec.cooldownMain, paceIntensity(rec));
+    renderWorkoutProfile(rec.warmupMain, rec.warmupDetail, rec.main, rec.detail, rec.cooldownMain, rec.cooldownDetail, paceIntensity(rec));
     return;
   }
 
@@ -484,13 +463,7 @@ function renderTrainingPlanPanel(score) {
     els.thresholdZone.textContent = formatPaceRange(basePace - 0.15, basePace + 0.15);
     els.vo2Zone.textContent = formatPaceRange(basePace - 1.0, basePace - 0.5);
 
-    els.warmupDuration.textContent = rec.warmupMain;
-    els.warmupDetail.textContent = rec.warmupDetail;
-    els.mainSet.textContent = rec.main;
-    els.mainSetCopy.textContent = rec.detail;
-    els.cooldownDuration.textContent = rec.cooldownMain;
-    els.cooldownDetail.textContent = rec.cooldownDetail;
-    renderWorkoutProfile(rec.warmupMain, rec.main, rec.cooldownMain, paceIntensity(rec));
+    renderWorkoutProfile(rec.warmupMain, rec.warmupDetail, rec.main, rec.detail, rec.cooldownMain, rec.cooldownDetail, paceIntensity(rec));
     return;
   }
 
@@ -505,13 +478,7 @@ function renderTrainingPlanPanel(score) {
   els.thresholdZone.textContent = formatZone(0.95, 1.05);
   els.vo2Zone.textContent = formatZone(1.06, 1.2);
 
-  els.warmupDuration.textContent = "12 min";
-  els.warmupDetail.textContent = "Zone 1-2 cadence build";
-  els.mainSet.textContent = rec.main;
-  els.mainSetCopy.textContent = rec.detail;
-  els.cooldownDuration.textContent = "10 min";
-  els.cooldownDetail.textContent = "Easy spin and mobility";
-  renderWorkoutProfile("12 min", rec.main, "10 min", cyclingIntensity(rec));
+  renderWorkoutProfile("12 min", "Zone 1-2 cadence build", rec.main, rec.detail, "10 min", "Easy spin and mobility", cyclingIntensity(rec));
 }
 
 function estimateRun(file, text = "") {
