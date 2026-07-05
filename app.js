@@ -126,8 +126,12 @@ function escapeHtml(value) {
 }
 
 function formatSleep(hours) {
-  const whole = Math.floor(hours);
-  const minutes = Math.round((hours - whole) * 60);
+  let whole = Math.floor(hours);
+  let minutes = Math.round((hours - whole) * 60);
+  if (minutes === 60) {
+    whole += 1;
+    minutes = 0;
+  }
   return `${whole}h ${minutes}m`;
 }
 
