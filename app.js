@@ -738,6 +738,22 @@ function updateTargets(score) {
   els.bedtime.textContent = `${displayHour}:${String(minute).padStart(2, "0")} ${period}`;
 }
 
+// Recomputes the daily fuel targets from today's training load and sleep
+// duration: harder sessions raise the targets, and a sleep shortfall raises
+// them further since recovery from both has to come from the same fuel.
+function applyAdaptiveNutritionTargets() {
+  const load = state.trainingLoad;
+  const sleepDeficit = clamp(7.6 - state.sleepHours, -1.5, 3);
+
+  state.targetCarbs = clamp(Math.round((220 + load * 1.15 + sleepDeficit * 18) / 10) * 10, 150, 500);
+  state.targetProtein = clamp(Math.round((90 + load * 0.35 + sleepDeficit * 6) / 5) * 5, 60, 200);
+  state.targetCalories = clamp(Math.round((1800 + load * 7 + sleepDeficit * 60) / 50) * 50, 1500, 4000);
+
+  inputs.targetCarbs.value = state.targetCarbs;
+  inputs.targetProtein.value = state.targetProtein;
+  inputs.targetCalories.value = state.targetCalories;
+}
+
 // ── Auth helpers ──────────────────────────────────────────────────────────────
 
 function debounce(fn, ms) {
@@ -1029,6 +1045,7 @@ async function applyRideEstimate(file, text, headerOverride, manualOverrides, im
   }
   state.hydration = clamp(2.4 + minutes / 130, 2.4, 4.2);
   inputs.trainingLoad.value = state.trainingLoad;
+  applyAdaptiveNutritionTargets();
 
   const label = ai ? "AI" : (manualOverrides ? "Logged" : "Estimated");
   els.rideResult.innerHTML = `
@@ -1077,6 +1094,7 @@ async function applyRunEstimate(file, text, image) {
   state.trainingLoad = clamp(Math.round(load), 5, 200);
   inputs.trainingLoad.value = state.trainingLoad;
   state.hydration = clamp(2.4 + minutes / 130, 2.4, 4.2);
+  applyAdaptiveNutritionTargets();
 
   const label = ai ? "AI" : "Estimated";
   els.runResult.innerHTML = `
@@ -1121,6 +1139,7 @@ async function applySwimEstimate(file, text, image) {
   state.trainingLoad = clamp(Math.round(load), 5, 200);
   inputs.trainingLoad.value = state.trainingLoad;
   state.hydration = clamp(2.4 + minutes / 130, 2.4, 4.2);
+  applyAdaptiveNutritionTargets();
 
   const label = ai ? "AI" : "Estimated";
   els.swimResult.innerHTML = `
@@ -1169,6 +1188,7 @@ async function applySleepEstimate(file, text, headerOverride, manualOverrides, i
   state.sleepQuality = clamp(Math.round(quality), 20, 100);
   inputs.sleepHours.value  = state.sleepHours;
   inputs.sleepQuality.value = state.sleepQuality;
+  applyAdaptiveNutritionTargets();
 
   const label = ai ? "AI" : "Estimated";
   els.sleepResult.innerHTML = `
@@ -1431,8 +1451,13 @@ function render() {
 
 // ── Event listeners ───────────────────────────────────────────────────────────
 
+const TRAINING_SLEEP_KEYS = new Set(["trainingLoad", "sleepHours"]);
 Object.entries(inputs).forEach(([key, input]) => {
-  input.addEventListener("input", () => { state[key] = Number(input.value); render(); });
+  input.addEventListener("input", () => {
+    state[key] = Number(input.value);
+    if (TRAINING_SLEEP_KEYS.has(key)) applyAdaptiveNutritionTargets();
+    render();
+  });
 });
 
 document.querySelectorAll(".meal-type-radio").forEach((radio) => {
