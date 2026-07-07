@@ -78,7 +78,9 @@ const els = {
   historyRuns: document.querySelector("#historyRuns"),
   historySwims: document.querySelector("#historySwims"),
   historySleep: document.querySelector("#historySleep"),
-  historyNutrition: document.querySelector("#historyNutrition")
+  historyNutrition: document.querySelector("#historyNutrition"),
+  progressTrainingChart: document.querySelector("#progressTrainingChart"),
+  progressSleepChart: document.querySelector("#progressSleepChart")
 };
 
 const inputs = {
@@ -1353,6 +1355,76 @@ async function deleteHistoryRecord(type, id) {
   } catch { /* leave the record visible if the delete failed */ }
 }
 
+// ── Progress charts ──────────────────────────────────────────────────────────
+// Small dependency-free SVG line charts built straight from historyData, so
+// each series keeps its own y-scale (they're different units) while sharing
+// one x-scale (time) across the card.
+
+function buildMultiLineChart(seriesList, { width = 560, height = 170, padding = 24 } = {}) {
+  const active = seriesList.filter((s) => s.points.length > 0);
+  if (!active.length) return "";
+
+  const allX = active.flatMap((s) => s.points.map((p) => p.x));
+  const minX = Math.min(...allX);
+  const maxX = Math.max(...allX);
+  const xSpan = maxX - minX || 1;
+  const chartW = width - padding * 2;
+  const chartH = height - padding * 2;
+
+  const single = active.length === 1 && active[0].points.length === 1;
+
+  const linesSvg = active.map((s) => {
+    const sorted = [...s.points].sort((a, b) => a.x - b.x);
+    const ys = sorted.map((p) => p.y);
+    const minY = s.floor ?? Math.min(...ys);
+    const maxY = Math.max(...ys, minY + 0.0001);
+    const ySpan = (maxY - minY) || 1;
+
+    const coords = sorted.map((p) => ({
+      x: single ? padding + chartW / 2 : padding + ((p.x - minX) / xSpan) * chartW,
+      y: padding + chartH - ((p.y - minY) / ySpan) * chartH,
+      raw: p
+    }));
+
+    const path = coords.length > 1
+      ? coords.map((c, i) => `${i === 0 ? "M" : "L"}${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(" ")
+      : "";
+
+    const dots = coords.map((c) => `<circle cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="3.2" fill="${s.color}"><title>${escapeHtml(formatHistoryDate(c.raw.x))} — ${c.raw.y}${s.unit || ""}</title></circle>`).join("");
+
+    return `${path ? `<path d="${path}" fill="none" stroke="${s.color}" stroke-width="2"/>` : ""}${dots}`;
+  }).join("");
+
+  const legend = active.map((s) => `<span class="chart-legend-item"><i style="background:${s.color}"></i>${escapeHtml(s.label)}</span>`).join("");
+
+  return `
+    <svg class="progress-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+      <line x1="${padding}" y1="${padding + chartH}" x2="${padding + chartW}" y2="${padding + chartH}" stroke="var(--line)" stroke-width="1"/>
+      ${linesSvg}
+    </svg>
+    <div class="chart-legend">${legend}</div>
+  `;
+}
+
+function renderProgressCharts() {
+  if (els.progressTrainingChart) {
+    const trainingChart = buildMultiLineChart([
+      { label: "Rides (TSS)", color: "var(--accent)", unit: " TSS", floor: 0, points: historyData.rides.map((r) => ({ x: r.timestamp, y: r.tss })) },
+      { label: "Runs (load)", color: "var(--teal)", unit: " load", floor: 0, points: historyData.runs.map((r) => ({ x: r.timestamp, y: r.load })) },
+      { label: "Swims (load)", color: "var(--amber)", unit: " load", floor: 0, points: historyData.swims.map((r) => ({ x: r.timestamp, y: r.load })) }
+    ]);
+    els.progressTrainingChart.innerHTML = trainingChart || '<p class="history-empty">Log a ride, run or swim to see your training progress.</p>';
+  }
+
+  if (els.progressSleepChart) {
+    const sleepChart = buildMultiLineChart([
+      { label: "Sleep duration (h)", color: "var(--teal)", unit: "h", floor: 0, points: historyData.sleep.map((r) => ({ x: r.timestamp, y: r.duration })) },
+      { label: "Sleep quality (%)", color: "var(--accent)", unit: "%", floor: 0, points: historyData.sleep.map((r) => ({ x: r.timestamp, y: r.quality })) }
+    ]);
+    els.progressSleepChart.innerHTML = sleepChart || '<p class="history-empty">Log a sleep record to see your sleep progress.</p>';
+  }
+}
+
 function renderHistoryList(container, type, records, emptyText, formatItem) {
   if (!container) return;
   if (!records.length) {
@@ -1371,6 +1443,7 @@ function renderHistoryList(container, type, records, emptyText, formatItem) {
 }
 
 function renderHistory() {
+  renderProgressCharts();
   renderHistoryList(els.historyRides, "ride", historyData.rides, "No rides logged yet.", (r) =>
     `${r.distance} km · ${r.minutes} min · ${r.calories} kcal · ${r.tss} TSS${r.avgPower ? ` · ${r.avgPower}W avg` : ""}${r.maxPower ? ` · ${r.maxPower}W max` : ""}${r.avgHr ? ` · ${r.avgHr} bpm avg` : ""}${r.maxHr ? ` · ${r.maxHr} bpm max` : ""}${r.ftpWatts ? ` · ${r.ftpWatts} W FTP` : ""}${r.soreness != null ? ` · Soreness ${r.soreness}/10` : ""}`
   );
