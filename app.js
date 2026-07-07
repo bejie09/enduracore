@@ -537,7 +537,8 @@ function estimateSwim(file, text = "") {
 // manual entry, AI analysis, or the no-data fallback estimate below. It blends
 // sleep efficiency (asleep vs. total time in bed, so Awake directly lowers the
 // score) with how close Deep and REM are to their healthy proportion of total
-// sleep (Light fills the remainder, so it shapes those proportions too).
+// sleep (Light fills the remainder, so it shapes those proportions too). REM is
+// weighted heaviest (35%) since REM sleep is the primary recovery signal.
 function calculateSleepQualityPct({ duration, deep = 0, light = 0, rem = 0, awake = 0 }) {
   const asleep = duration || (deep + light + rem);
   if (asleep <= 0) return 50;
@@ -545,7 +546,7 @@ function calculateSleepQualityPct({ duration, deep = 0, light = 0, rem = 0, awak
   const efficiency = clamp(asleep / timeInBed, 0, 1);
   const deepRatio  = clamp((deep / asleep) / 0.20, 0, 1);
   const remRatio   = clamp((rem / asleep) / 0.22, 0, 1);
-  const score = efficiency * 0.5 + deepRatio * 0.3 + remRatio * 0.2;
+  const score = efficiency * 0.4 + deepRatio * 0.25 + remRatio * 0.35;
   return clamp(Math.round(score * 100), 20, 100);
 }
 
