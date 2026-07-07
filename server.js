@@ -73,6 +73,14 @@ function buildSleepVisionPrompt(filename) {
   return `You are looking at a screenshot from a sleep tracking app or wearable showing a night's sleep summary. Read the EXACT hours/numbers that are visibly printed on screen for each sleep stage. Do not estimate, recalculate, or invent any value that is not clearly shown in the image — copy it exactly as displayed. If a field is not visible anywhere in the image, set it to null rather than guessing.\nOnly "recovery_note" and "coach_tip" are your own analysis and coaching feedback; every other field must come directly from what is printed in the image. Do not include a quality/score field — the app calculates that itself from the stage hours.\nFilename: ${filename}\n\nReturn ONLY a single-line JSON object with no markdown and no explanation, in exactly this structure:\n{"duration_hours":number,"deep_sleep_hours":number,"rem_hours":number,"light_sleep_hours":number,"awake_hours":number,"bedtime":"string","wake_time":"string","recovery_note":"string","coach_tip":"string"}`;
 }
 
+// Powers the "What to watch" panel on the Today tab. Unlike buildPrompt(), this
+// has no filename/content to read — it's given the athlete's current readiness,
+// sleep, training, and nutrition numbers and asked to write short coaching notes
+// (the app also has a rule-based fallback so the panel is never left with nothing).
+function buildCoachNotesPrompt(ctx) {
+  return `/no_think\nYou are an expert AI cycling coach writing the "What to watch" panel on an athlete's daily dashboard. Write 3-4 short, specific, actionable coaching notes (one sentence each) based on today's data below. Assign "tone":"alert" to at most one note for the single most urgent issue (only if something is genuinely concerning), "warning" for a moderate concern, or "" for a normal or positive note. Order notes with the biggest limiter first. Use plain text with no markdown.\n\nToday's data:\n- Readiness score: ${ctx.readiness ?? "unknown"}/100\n- Sleep: ${ctx.sleepHours ?? "unknown"}h at ${ctx.sleepQuality ?? "unknown"}% quality\n- Training load (yesterday): ${ctx.trainingLoad ?? "unknown"} TSS\n- Muscle soreness: ${ctx.soreness ?? "unknown"}/10\n- FTP: ${ctx.ftp ?? "unknown"} W (target ${ctx.targetFtp ?? "unknown"} W)\n- Nutrition today: ${ctx.nutritionSummary || "no meals logged yet"}\n\nReturn ONLY a single-line JSON object with no markdown and no explanation, in exactly this structure:\n{"notes":[{"tone":"alert"|"warning"|"","text":"string"}]}`;
+}
+
 function extractJson(text) {
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) return null;
@@ -424,6 +432,28 @@ http.createServer(async (req, res) => {
         console.warn(`[webui-mirror] unexpected error for ${user.email}: ${mirrorErr.message}`);
       }
       return json(res, 200, { ok: true, response: text });
+    } catch (err) {
+      return json(res, 200, { ok: false, error: err.message });
+    }
+  }
+
+  if (pathname === "/api/coach-notes" && req.method === "POST") {
+    const db = loadDB();
+    const user = userByToken(db, getToken(req));
+    if (!user) return json(res, 401, { error: "Unauthorized" });
+    const { context } = await parseBody(req);
+    const prompt = buildCoachNotesPrompt(context || {});
+    try {
+      const result = await ollamaGenerate(prompt, 60000, { think: false });
+      const data = extractJson(result.response || "");
+      const notes = Array.isArray(data?.notes)
+        ? data.notes
+            .filter(n => n && typeof n.text === "string" && n.text.trim())
+            .slice(0, 5)
+            .map(n => ({ tone: ["alert", "warning"].includes(n.tone) ? n.tone : "", text: n.text.trim() }))
+        : null;
+      if (!notes || !notes.length) return json(res, 200, { ok: false, error: "Could not parse AI response" });
+      return json(res, 200, { ok: true, notes });
     } catch (err) {
       return json(res, 200, { ok: false, error: err.message });
     }

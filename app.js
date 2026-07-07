@@ -115,6 +115,8 @@ let currentNutritionTab = "photo";
 let currentRidesTab = "cycling";
 let historyData = { rides: [], runs: [], swims: [], sleep: [], nutrition: [], coach: [] };
 const HISTORY_KEYS = { ride: "rides", run: "runs", swim: "swims", sleep: "sleep", nutrition: "nutrition", coach: "coach" };
+let coachNotesTimer = null;
+let coachNotesSeq = 0;
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -596,6 +598,23 @@ function dailyTotals() {
   }, { carbs: 0, protein: 0, fluids: 0, calories: 0 });
 }
 
+// One-line summary of today's fuel status for the AI coach prompt — mirrors the
+// same shortfall logic buildNotes() uses for the rule-based fallback.
+function nutritionContextSummary() {
+  if (dailyMealsLogged()) {
+    const totals = dailyTotals();
+    const shortfalls = [];
+    if (totals.carbs < state.targetCarbs) shortfalls.push("carbs");
+    if (totals.protein < state.targetProtein) shortfalls.push("protein");
+    if (totals.fluids < state.targetFluids) shortfalls.push("fluids");
+    if (totals.calories < state.targetCalories) shortfalls.push("calories");
+    const base = `Logged ${totals.carbs}g carbs, ${totals.protein}g protein, ${totals.fluids}ml fluids, ${totals.calories} kcal vs targets ${state.targetCarbs}g/${state.targetProtein}g/${state.targetFluids}ml/${state.targetCalories}kcal`;
+    return shortfalls.length ? `${base}. Short on ${shortfalls.join(", ")}.` : `${base}. All targets met.`;
+  }
+  if (state.meals < 3) return `Only ${state.meals} of 3 meals logged today; fuel readiness incomplete.`;
+  return "No meals logged yet today.";
+}
+
 function calculateReadiness() {
   const sleepScore = clamp(((state.sleepHours - 4) / 5.5) * 100, 0, 100);
   const qualityScore = state.sleepQuality;
@@ -695,6 +714,50 @@ function buildNotes(score) {
   }
   if (score < 50) notes.push(["alert", "Low readiness means the best gain comes from restraint. Bank recovery today."]);
   return notes;
+}
+
+function renderCoachNotesList(notes) {
+  els.coachNotes.innerHTML = notes
+    .map(([tone, text]) => `<li class="${tone}">${escapeHtml(text)}</li>`)
+    .join("");
+}
+
+// The rule-based buildNotes() above always renders instantly so "What to watch"
+// is never blank or stale. This asks the AI Coach to write the same panel from
+// the live readiness/sleep/training/nutrition numbers and swaps it in once ready,
+// discarding any response that isn't the latest request (coachNotesSeq guards
+// against a slow earlier call overwriting a newer one).
+async function fetchAiCoachNotes() {
+  if (!currentUser) return;
+  const mySeq = ++coachNotesSeq;
+  const context = {
+    ftp: state.ftp,
+    targetFtp: state.targetFtp,
+    readiness: calculateReadiness(),
+    sleepHours: state.sleepHours,
+    sleepQuality: state.sleepQuality,
+    trainingLoad: state.trainingLoad,
+    soreness: state.soreness,
+    nutritionSummary: nutritionContextSummary()
+  };
+  try {
+    const res = await fetch("/api/coach-notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${currentUser.token}` },
+      body: JSON.stringify({ context })
+    });
+    const data = await res.json();
+    if (mySeq !== coachNotesSeq) return; // a newer request already landed
+    if (data.ok && Array.isArray(data.notes) && data.notes.length) {
+      renderCoachNotesList(data.notes.map((n) => [n.tone || "", n.text]));
+    }
+  } catch { /* keep whatever notes are already showing */ }
+}
+
+function scheduleCoachNotesRefresh(immediate) {
+  clearTimeout(coachNotesTimer);
+  if (immediate) { fetchAiCoachNotes(); return; }
+  coachNotesTimer = setTimeout(fetchAiCoachNotes, 1000);
 }
 
 function updateTargets(score) {
@@ -894,6 +957,7 @@ function onAuthSuccess(user) {
   document.getElementById("nav-user").textContent = user.email;
   applyProfile(user.profile);
   render();
+  scheduleCoachNotesRefresh(true);
   fetchHistory();
 }
 
@@ -1058,6 +1122,7 @@ async function applyRideEstimate(file, text, headerOverride, manualOverrides, im
     ${coachTip ? `<small>${escapeHtml(coachTip)}</small>` : ""}
   `;
   render();
+  scheduleCoachNotesRefresh(true);
 
   saveHistoryRecord("ride", {
     distance: Math.round(distance),
@@ -1107,6 +1172,7 @@ async function applyRunEstimate(file, text, image) {
     ${coachTip ? `<small>${escapeHtml(coachTip)}</small>` : ""}
   `;
   render();
+  scheduleCoachNotesRefresh(true);
 
   saveHistoryRecord("run", {
     distance: Math.round(distance * 10) / 10,
@@ -1152,6 +1218,7 @@ async function applySwimEstimate(file, text, image) {
     ${coachTip ? `<small>${escapeHtml(coachTip)}</small>` : ""}
   `;
   render();
+  scheduleCoachNotesRefresh(true);
 
   saveHistoryRecord("swim", {
     distance: Math.round(distance),
@@ -1201,6 +1268,7 @@ async function applySleepEstimate(file, text, headerOverride, manualOverrides, i
     ${coachTip  ? `<small>${escapeHtml(coachTip)}</small>`  : ""}
   `;
   render();
+  scheduleCoachNotesRefresh(true);
 
   saveHistoryRecord("sleep", {
     duration: state.sleepHours,
@@ -1269,6 +1337,7 @@ async function applyFoodEstimate(file, text, mealType) {
   state.meals = Object.values(state.dailyMeals).filter(Boolean).length;
   state.hydration = clamp(fluids / 250, 2.4, 4.2);
   render();
+  scheduleCoachNotesRefresh(true);
 
   saveHistoryRecord("nutrition", {
     mealType,
@@ -1515,9 +1584,8 @@ function render() {
   updateTargets(score);
   renderNutritionSummary();
 
-  els.coachNotes.innerHTML = buildNotes(score)
-    .map(([tone, text]) => `<li class="${tone}">${text}</li>`)
-    .join("");
+  renderCoachNotesList(buildNotes(score));
+  scheduleCoachNotesRefresh(false);
 
   updateCoachSidebar();
   persistProfile();
@@ -1716,6 +1784,7 @@ document.querySelector("#optimizeBtn").addEventListener("click", () => {
   state.soreness = 2;
   state.targetFtp = Math.max(state.ftp + 20, state.targetFtp);
   render();
+  scheduleCoachNotesRefresh(true);
 });
 
 // ── Forgot / Reset password ───────────────────────────────────────────────────
