@@ -1,6 +1,8 @@
 const DEFAULTS = {
   sleepHours: 7.6,
   sleepQuality: 82,
+  napMinutes: 0,
+  napQualityBonus: 0,
   trainingLoad: 72,
   soreness: 3,
   ftp: 245,
@@ -552,6 +554,13 @@ function calculateSleepQualityPct({ duration, deep = 0, light = 0, rem = 0, awak
   return clamp(Math.round(score * 100), 20, 100);
 }
 
+// Naps don't extend total sleep hours, but they do restore alertness, so they
+// nudge the Sleep Quality percentage instead. +1% per ~6 minutes napped,
+// capped at +15% (reached at a full 90-minute nap cycle).
+function calculateNapBonus(minutes) {
+  return clamp(Math.round(minutes / 6), 0, 15);
+}
+
 function estimateSleep(file, text = "") {
   const lower = `${file.name} ${text}`.toLowerCase();
   const duration =
@@ -874,8 +883,14 @@ function switchRidesTab(tab) {
 function switchSleepTab(tab) {
   document.getElementById("sleep-upload-panel").style.display = tab === "upload" ? "" : "none";
   document.getElementById("sleep-manual-panel").style.display = tab === "manual" ? "" : "none";
+  document.getElementById("sleep-nap-panel").style.display = tab === "nap" ? "" : "none";
   document.getElementById("sleep-tab-upload").classList.toggle("active", tab === "upload");
   document.getElementById("sleep-tab-manual").classList.toggle("active", tab === "manual");
+  document.getElementById("sleep-tab-nap").classList.toggle("active", tab === "nap");
+  // The nap tab has its own result card, so hide the shared upload/manual
+  // sleep result and photo preview while it's active to avoid showing two.
+  document.getElementById("sleepResult").style.display = tab === "nap" ? "none" : "";
+  document.getElementById("sleepPhotoPreview").style.display = tab === "nap" ? "none" : "";
 }
 
 function switchCyclingInputTab(tab) {
@@ -1254,6 +1269,12 @@ async function applySleepEstimate(file, text, headerOverride, manualOverrides, i
   const recovNote = ai?.recovery_note;
   const coachTip  = ai?.coach_tip;
 
+  // A fresh sleep reading replaces last night's baseline, so any earlier nap
+  // boost no longer applies — clear it rather than leaving it stacked on top.
+  state.napMinutes = 0;
+  state.napQualityBonus = 0;
+  document.getElementById("napAmountInput").value = "";
+
   state.sleepHours   = Number(Math.min(duration, 12).toFixed(1));
   state.sleepQuality = clamp(Math.round(quality), 20, 100);
   inputs.sleepHours.value  = state.sleepHours;
@@ -1300,6 +1321,68 @@ async function analyzeSleepText() {
   await applySleepEstimate({ name: "Manual entry", size: 0 }, content, "Manual sleep entry", { duration: total, deep, light, rem, awake });
   btn.disabled = false;
   btn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 14H11v-2h2zm0-4H11V7h2z"/></svg> Enter`;
+}
+
+// Applies (or replaces) the nap boost on top of state.sleepQuality — the
+// current bonus is subtracted before the new one is added so re-entering a
+// nap updates the boost instead of stacking on top of the previous one.
+function addNap() {
+  const amountInput = document.getElementById("napAmountInput");
+  const unit = document.getElementById("napUnitInput").value;
+  const amount = parseFloat(amountInput.value);
+  if (!amount || amount <= 0) return;
+
+  const minutes = Math.round(unit === "hours" ? amount * 60 : amount);
+  const bonus = calculateNapBonus(minutes);
+
+  state.sleepQuality = clamp(state.sleepQuality - state.napQualityBonus + bonus, 20, 100);
+  state.napMinutes = minutes;
+  state.napQualityBonus = bonus;
+  inputs.sleepQuality.value = state.sleepQuality;
+
+  render();
+  scheduleCoachNotesRefresh(true);
+}
+
+function clearNap() {
+  if (!state.napQualityBonus) return;
+  state.sleepQuality = clamp(state.sleepQuality - state.napQualityBonus, 20, 100);
+  state.napMinutes = 0;
+  state.napQualityBonus = 0;
+  inputs.sleepQuality.value = state.sleepQuality;
+  document.getElementById("napAmountInput").value = "";
+
+  render();
+  scheduleCoachNotesRefresh(true);
+}
+
+function formatNapDuration(minutes) {
+  if (minutes < 60) return `${minutes}m`;
+  return formatSleep(minutes / 60);
+}
+
+function renderNapUI() {
+  const result = document.getElementById("napResult");
+  const pill = document.getElementById("napBoostPill");
+  if (!result) return;
+
+  if (state.napQualityBonus > 0) {
+    result.classList.add("logged");
+    result.innerHTML = `
+      <span>Nap applied</span>
+      <strong>${formatNapDuration(state.napMinutes)} nap · +${state.napQualityBonus}% Sleep Quality boost</strong>
+      <button type="button" class="nap-clear-btn" onclick="clearNap()">Remove nap</button>
+    `;
+    pill.hidden = false;
+    pill.textContent = `+${state.napQualityBonus}% today`;
+  } else {
+    result.classList.remove("logged");
+    result.innerHTML = `
+      <span>No nap logged today</span>
+      <strong>Add a nap above to apply its recovery boost to Sleep Quality.</strong>
+    `;
+    pill.hidden = true;
+  }
 }
 
 async function analyzeRideText() {
@@ -1588,6 +1671,7 @@ function render() {
   scheduleCoachNotesRefresh(false);
 
   updateCoachSidebar();
+  renderNapUI();
   persistProfile();
 }
 
@@ -1598,8 +1682,22 @@ Object.entries(inputs).forEach(([key, input]) => {
   input.addEventListener("input", () => {
     state[key] = Number(input.value);
     if (TRAINING_SLEEP_KEYS.has(key)) applyAdaptiveNutritionTargets();
+    // Dragging the quality slider directly overrides the value a nap boost
+    // was added to, so the tracked bonus no longer reflects what's applied.
+    if (key === "sleepQuality") {
+      state.napMinutes = 0;
+      state.napQualityBonus = 0;
+      document.getElementById("napAmountInput").value = "";
+    }
     render();
   });
+});
+
+document.getElementById("napAmountInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    addNap();
+  }
 });
 
 document.querySelectorAll(".meal-type-radio").forEach((radio) => {
@@ -1780,6 +1878,9 @@ document.querySelector("#optimizeBtn").addEventListener("click", () => {
   inputs.targetFtp.value = Math.max(state.ftp + 20, state.targetFtp);
   state.sleepHours = 8.1;
   state.sleepQuality = 88;
+  state.napMinutes = 0;
+  state.napQualityBonus = 0;
+  document.getElementById("napAmountInput").value = "";
   state.trainingLoad = 58;
   state.soreness = 2;
   state.targetFtp = Math.max(state.ftp + 20, state.targetFtp);

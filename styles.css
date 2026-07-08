@@ -896,6 +896,120 @@ h2 {
   flex-shrink: 0;
 }
 
+/* ── Nap entry ─────────────────────────────────────────── */
+
+.nap-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f2f8f9;
+}
+
+.nap-entry .manual-food-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nap-boost-pill {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--teal);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.nap-fields {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.nap-field-amount,
+.nap-field-unit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nap-field-amount { flex: 1 1 140px; }
+.nap-field-unit { flex: 0 0 130px; }
+
+.nap-field-amount label,
+.nap-field-unit label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.nap-field-amount input,
+.nap-field-unit select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.92rem;
+  transition: border-color 0.15s;
+}
+
+.nap-field-amount input:focus,
+.nap-field-unit select:focus {
+  outline: none;
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(10,111,134,0.14);
+}
+
+.nap-add-btn {
+  flex: 0 0 auto;
+  background: var(--teal);
+}
+
+.nap-add-btn:hover { background: #085468; }
+
+.nap-add-btn svg {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2;
+}
+
+.nap-result {
+  border-left-color: var(--line);
+  background: #f7f5f2;
+}
+
+.nap-result.logged {
+  border-left-color: var(--teal);
+  background: #eef6f7;
+}
+
+.nap-clear-btn {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.nap-clear-btn:hover { color: var(--accent-dark); }
+
+@media (max-width: 640px) {
+  .nap-field-amount, .nap-field-unit { flex: 1 1 100%; }
+  .nap-add-btn { width: 100%; justify-content: center; }
+}
+
 .control span {
   display: flex;
   justify-content: space-between;

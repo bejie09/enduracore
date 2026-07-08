@@ -794,6 +794,10 @@
                 <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                 Type manually
               </button>
+              <button class="nutrition-tab" id="sleep-tab-nap" onclick="switchSleepTab('nap')">
+                <svg viewBox="0 0 24 24"><path d="M20 15.5A7.5 7.5 0 0 1 8.5 4a8 8 0 1 0 11.5 11.5Z" /></svg>
+                Add nap
+              </button>
             </div>
 
             <!-- Upload panel -->
@@ -843,6 +847,35 @@
                   <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 14H11v-2h2zm0-4H11V7h2z"/></svg>
                   Enter
                 </button>
+              </div>
+            </div>
+
+            <!-- Nap entry panel -->
+            <div id="sleep-nap-panel" style="display:none">
+              <div class="nap-entry">
+                <label class="manual-food-label">Log a daytime nap <span class="nap-boost-pill" id="napBoostPill" hidden>+0% today</span></label>
+                <p class="manual-sleep-hint">Type how long you napped. It won't add to your total sleep hours — it's applied straight to today's Sleep Quality percentage as a recovery boost.</p>
+                <div class="nap-fields">
+                  <div class="nap-field-amount">
+                    <label for="napAmountInput">Nap length</label>
+                    <input id="napAmountInput" type="number" min="0" step="1" placeholder="30">
+                  </div>
+                  <div class="nap-field-unit">
+                    <label for="napUnitInput">Unit</label>
+                    <select id="napUnitInput">
+                      <option value="minutes" selected>Minutes</option>
+                      <option value="hours">Hours</option>
+                    </select>
+                  </div>
+                  <button class="analyze-food-btn nap-add-btn" id="addNapBtn" onclick="addNap()">
+                    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+                    Add nap
+                  </button>
+                </div>
+              </div>
+              <div class="ai-result nap-result" id="napResult">
+                <span>No nap logged today</span>
+                <strong>Add a nap above to apply its recovery boost to Sleep Quality.</strong>
               </div>
             </div>
 
